@@ -2,17 +2,13 @@
 
 
 #include "AI/GA/GRGroundStrikeAttackAbility.h"
-#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
-#include "Abilities/Tasks/AbilityTask_WaitGameplayEvent.h"
-#include "Kismet/KismetSystemLibrary.h"
 #include "AbilitySystemInterface.h"
 #include "AbilitySystemComponent.h"
 #include "Character/GRCharacter.h"
+#include "Engine/OverlapResult.h"
 
 UGRGroundStrikeAttackAbility::UGRGroundStrikeAttackAbility()
-	:AttackMontage(nullptr)
 {
-	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 }
 
 void UGRGroundStrikeAttackAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle,
@@ -21,39 +17,8 @@ void UGRGroundStrikeAttackAbility::ActivateAbility(const FGameplayAbilitySpecHan
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
-	if (!ActorInfo || !ActorInfo->AvatarActor.IsValid() || !AttackMontage)
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, true, true);
-		return;
-	}
-
-	UAbilityTask_PlayMontageAndWait* MontageTask =
-		UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
-			this,
-			NAME_None,
-			AttackMontage,
-			1.0f,      // 재생 속도
-			NAME_None, // 시작 섹션
-			true,      // StopWhenAbilityEnds
-			0.0f       // 시작 위치
-		);
-
-	MontageTask->OnCompleted.AddDynamic(this, &UGRGroundStrikeAttackAbility::OnMontageEnded);
-	MontageTask->OnInterrupted.AddDynamic(this, &UGRGroundStrikeAttackAbility::OnMontageEnded);
-	MontageTask->OnCancelled.AddDynamic(this, &UGRGroundStrikeAttackAbility::OnMontageEnded);
-	MontageTask->OnBlendOut.AddDynamic(this, &UGRGroundStrikeAttackAbility::OnMontageEnded);
-	MontageTask->ReadyForActivation();
-	
-	UAbilityTask_WaitGameplayEvent* WaitEvent = UAbilityTask_WaitGameplayEvent::WaitGameplayEvent(
-		this,
-		HitEventTag,
-		ActorInfo->AvatarActor.Get(),  // ExternalTarget: 보통 자기 자신
-		true,  // OnlyTriggerOnce
-		false  // OnlyMatchExact
-	);
-
-	WaitEvent->EventReceived.AddDynamic(this, &UGRGroundStrikeAttackAbility::OnHitNotify);
-	WaitEvent->ReadyForActivation();
+	PlayAttackMontageAndWaitTask();
+	WaitAttackGameplayEventTask();
 }
 
 void UGRGroundStrikeAttackAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
@@ -63,36 +28,46 @@ void UGRGroundStrikeAttackAbility::EndAbility(const FGameplayAbilitySpecHandle H
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
+
 void UGRGroundStrikeAttackAbility::OnHitNotify(FGameplayEventData Payload)
 {
+	Super::OnHitNotify(Payload);
+	
 	AActor* Instigator = GetAvatarActorFromActorInfo();
 	if (!Instigator) return;
 
-	// 예: Sphere Trace로 범위 데미지 판정
-	//TODO : 원기둥 모양으로, 범위 거리 추후 변경
 	FVector Origin = Instigator->GetActorLocation();
-	float Radius = 300.f;
-	TArray<FHitResult> Hits;
+	const float Radius = 500.f;
+	TArray<FOverlapResult> Overlaps;
 
-	UKismetSystemLibrary::SphereTraceMulti(
-		Instigator->GetWorld(),
-		Origin,
-		Origin,
-		Radius,
-		UEngineTypes::ConvertToTraceType(ECC_Pawn),
-		false,
-		TArray<AActor*>({Instigator}),
-		EDrawDebugTrace::ForDuration,      // 디버그 그리기 타입
-		Hits,
-		true,
-		FLinearColor::Red,                 // 히트 위치 색
-		FLinearColor::Yellow,               // Trace 라인 색
-		1.0f                                // 화면에 표시되는 시간 (초)
-	);
+	FCollisionShape SphereShape = FCollisionShape::MakeSphere(Radius);
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(Instigator);
 	
-	for (auto& Hit : Hits)
+	ECollisionChannel TraceChannel = ECC_Pawn;
+
+	bool bOverlap = GetWorld()->OverlapMultiByChannel(
+		Overlaps,
+		Origin,               
+		FQuat::Identity,      
+		TraceChannel,
+		SphereShape,
+		QueryParams
+	);
+
+	
+#if WITH_EDITOR
+	DrawDebugSphere(GetWorld(), Origin, Radius, 16, FColor::Yellow, false, 1.0f);
+#endif
+	
+	if (!bOverlap)
 	{
-		AActor* Other = Hit.GetActor();
+		return;
+	}
+	
+	for (const FOverlapResult& Result : Overlaps)
+	{
+		AActor* Other = Result.GetActor();
 		if (!Other)
 		{
 			continue;
@@ -104,13 +79,13 @@ void UGRGroundStrikeAttackAbility::OnHitNotify(FGameplayEventData Payload)
 			continue;
 		}
 
-		IAbilitySystemInterface* ASI = Cast<IAbilitySystemInterface>(PlayerChar);
-		if (!ASI)
+		IAbilitySystemInterface* PlayerASI = Cast<IAbilitySystemInterface>(PlayerChar);
+		if (!PlayerASI)
 		{
 			continue;
 		}
 		
-		UAbilitySystemComponent* PlayerASC = ASI->GetAbilitySystemComponent();
+		UAbilitySystemComponent* PlayerASC = PlayerASI->GetAbilitySystemComponent();
 		if (!PlayerASC)
 		{
 			continue;
@@ -121,6 +96,14 @@ void UGRGroundStrikeAttackAbility::OnHitNotify(FGameplayEventData Payload)
 		{
 			continue;
 		}
+
+#if WITH_EDITOR
+		FVector PlayerLoc = PlayerChar->GetActorLocation();
+		if (GetWorld())
+		{
+			DrawDebugSphere(GetWorld(),PlayerLoc,20.f,12,FColor::Red,false,1.0f);
+		}
+#endif
 		
 		FGameplayEffectContextHandle Context = AIASC->MakeEffectContext();
 		Context.AddSourceObject(Instigator);
@@ -133,11 +116,6 @@ void UGRGroundStrikeAttackAbility::OnHitNotify(FGameplayEventData Payload)
 	}
 }
 
-
-void UGRGroundStrikeAttackAbility::OnMontageEnded()
-{
-	EndAbility(GetCurrentAbilitySpecHandle(), GetCurrentActorInfo(), GetCurrentActivationInfo(), false, false);
-}
 
 
 
