@@ -113,6 +113,8 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerRPC_SwitchWeapon(int32 SlotIndex);
 
+	TArray<FGRItemHandle>& GetItemHandles() { return ItemHandles; }
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Class")
 	TSubclassOf<AGRItemActor> ItemActorClass;
