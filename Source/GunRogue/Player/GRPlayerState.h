@@ -130,6 +130,9 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerRPC_SwitchWeapon(int32 SlotIndex);
 
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastRPC_PlayWeaponEquipAnimMontage();
+  
 	UFUNCTION(BlueprintCallable, Category = "GunRogue|Weapon")
 	void UpgradeWeapon(int32 SlotIndex);
 
