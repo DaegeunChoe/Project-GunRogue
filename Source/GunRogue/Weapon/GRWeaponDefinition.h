@@ -77,4 +77,13 @@ public:
 	// 무기 옵션 풀
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Basic")
 	UGRWeaponOptionPool* OptionPool = nullptr;
+
+	// 탄창 크기 (최대 탄약)
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo")
+	int32 MaxAmmo = 30;
+
+	// 재장전 시간 (초)
+	/* [NOTE] 재장전 시간은 애님 몽타주 재생 시간을 이용해야 함. 따라서 나중에 제거해야함 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo")
+	float ReloadTime = 2.0f;
 };
