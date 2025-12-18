@@ -11,7 +11,9 @@ class UGRWeaponDefinition;
 class UGRWeaponUpgradeWidgetSetting;
 class UGRInventoryWidgetMain;
 class UGRAugmentHUDWidget;
+class UGRSpectatorHUDWidget;
 class UGRDamageIndicator;
+class UGRGameOverWidget;
 struct FGameplayEffectSpec;
 struct FOnAttributeChangeData;
 struct FGRLevel1Data;
@@ -26,7 +28,11 @@ public:
 	AGRBattlePlayerController();
 	virtual void BeginPlay() override;
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+	virtual void SetupInputComponent() override;
 	virtual void OnRep_PlayerState() override;
+
+	UFUNCTION(Client, Reliable)
+	void ClientRPC_OnRestartPlayer();
 
 private:
 	void CreateWidgets();
@@ -52,20 +58,41 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientRPC_ShowDamageIndicator(float Damage, AActor* DamagedActor);
 
+	UFUNCTION(BlueprintCallable, Server, Reliable)
+	void ServerRPC_GameOver();
+
+	UFUNCTION(Client, Reliable)
+	void ClientRPC_GameOver();
+
+	UFUNCTION(BlueprintCallable)
+	void ShowGameOverWidget();
+
+	UFUNCTION(BlueprintCallable)
+	void HideGameOverWidget();
+
 	UGRBattleHUDWidget* GetBattleHUDWidget() const { return HUDWidgetInstance; }	
 
 protected:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GunRogue|Map")
+	TSoftObjectPtr<UWorld> LobbyMap;
+
 	UPROPERTY()
 	TObjectPtr<UGRBattleHUDWidget> HUDWidgetInstance;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Widget|Class")
 	TSubclassOf<UGRBattleHUDWidget> HUDWidgetClass;
 
+	UPROPERTY()
+	TObjectPtr<UGRDamageIndicator> DamageIndicatorWidgetInstance;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Widget|Class")
 	TSubclassOf<UGRDamageIndicator> DamageIndicatorWidgetClass;
 
 	UPROPERTY()
-	TObjectPtr<UGRDamageIndicator> DamageIndicatorWidgetInstance;
+	TObjectPtr<UGRGameOverWidget> GameOverWidgetInstance;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Widget|Class")
+	TSubclassOf<UGRGameOverWidget> GameOverWidgetClass;
 
 	FTimerHandle OtherPlayerStatusUpdateTimer;
 	float OtherPlayerStatusUpdateInterval = 1.0f;
@@ -101,6 +128,49 @@ private:
 	void ShowDamageIndicator(float Damage, AActor* DamagedActor);
 
 #pragma endregion HUD
+
+/* 관전 관련 코드 */
+#pragma region Spectator_HUD
+public:
+	UFUNCTION(BlueprintCallable)
+	void ShowSpectatorHUD();
+
+	UFUNCTION(BlueprintCallable)
+	void HideSpectatorHUD();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRPC_StartSpectating();
+
+	UFUNCTION(Client, Reliable)
+	void ClientRPC_StartSpectating();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRPC_SpectatePreviousPlayer();
+
+	UFUNCTION(Server, Reliable)
+	void ServerRPC_SpectateNextPlayer();
+
+	TArray<AActor*> GetAlivePlayerList();
+
+protected:
+	UPROPERTY()
+	TObjectPtr<UGRSpectatorHUDWidget> SpectatorWidgetInstance;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Widget|Class")
+	TSubclassOf<UGRSpectatorHUDWidget> SpectatorWidgetClass;
+
+	void BindSpectatorInput();
+
+	void SetSpectatePlayer(AActor* TargetPlayer);
+	AActor* GetPreviousSpectateActor();
+	AActor* GetNextSpectateActor();
+
+	UFUNCTION(Client, Reliable)
+	void ClientRPC_SetSpectationTargetPlayerName(AActor* Target);
+
+	int32 CurrentSpectateIndex = INDEX_NONE;
+
+#pragma endregion
 
 /* 무기 강화 UI (UpgradeConsole) 관련 코드 */
 #pragma region UpgradeConsole
@@ -200,7 +270,7 @@ protected:
 	
 #pragma endregion Augment
 
-	// 인게임 메뉴
+/* 인게임 메뉴 코드 */
 #pragma region Menu
 public:
 	UFUNCTION(Client, Reliable)
